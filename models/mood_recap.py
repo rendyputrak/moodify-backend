@@ -9,7 +9,7 @@ class MoodRecap(Base):
     AnalysisID = Column(Integer, ForeignKey("expression_analysis.AnalysisID"))
     UserID = Column(Integer, ForeignKey("users.UserID"))
     MoodID = Column(Integer, ForeignKey("mood_list.MoodID"))
-    CreatedAt = Column(TIMESTAMP, default=func.now())
+    CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
 
     analysis = relationship("ExpressionAnalysis")
     user = relationship("User", back_populates="recaps")

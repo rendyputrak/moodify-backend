@@ -12,5 +12,5 @@ class MusicDataset(Base):
     ReleaseDate = Column(Date)
     SongUrl = Column(String(255))
     MoodClassification = Column(Enum('Sad', 'Calm', 'Energetic', 'Happy'))
-    CreatedAt = Column(TIMESTAMP, default=func.now())
-    UpdatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now())
+    CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
+    UpdatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)

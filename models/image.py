@@ -8,7 +8,7 @@ class Image(Base):
     ImageID = Column(Integer, primary_key=True, autoincrement=True)
     UserID = Column(Integer, ForeignKey("users.UserID"))
     ImagePath = Column(String(255))
-    CreatedAt = Column(TIMESTAMP, default=func.now())
+    CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
 
     user = relationship("User", back_populates="images")
     analyses = relationship("ExpressionAnalysis", back_populates="image")

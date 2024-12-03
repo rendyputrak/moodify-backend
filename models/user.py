@@ -13,8 +13,8 @@ class User(Base):
     Gender = Column(Enum('Laki-laki', 'Perempuan'))
     BirthDate = Column(Date)
     Avatar = Column(String(255), nullable=True)
-    createdAt = Column(TIMESTAMP, default=func.now())
-    updatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now())
+    createdAt = Column(TIMESTAMP, default=func.now(), nullable=False)
+    updatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)
 
     images = relationship("Image", back_populates="user")
     analyses = relationship("ExpressionAnalysis", back_populates="user")

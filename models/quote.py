@@ -10,7 +10,7 @@ class Quote(Base):
     QuoteAuthor = Column(String(100))
     MoodID = Column(Integer, ForeignKey("mood_list.MoodID"))
     RecapID = Column(Integer, ForeignKey("mood_recap.RecapID"))
-    CreatedAt = Column(TIMESTAMP, default=func.now())
+    CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
 
     mood = relationship("MoodList", back_populates="quotes")
     recap = relationship("MoodRecap")
