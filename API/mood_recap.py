@@ -1,10 +1,8 @@
-from fastapi import APIRouter, FastAPI, HTTPException, Depends, status
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-import models  
-from database import engine, SessionLocal  
-from pydantic import BaseModel, validator
-from typing import List, Annotated
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+import models   
+from pydantic import BaseModel
+from typing import Annotated
 from database import get_db
 
 router = APIRouter()
@@ -31,3 +29,8 @@ async def create_mood_recap(mood_recap: MoodRecapCreate, db: Annotated[Session, 
 @router.get("/mood_recap/", status_code=status.HTTP_200_OK)
 async def get_mood_recap(db: Annotated[Session, Depends(get_db)]):
     return db.query(models.MoodRecap).all()
+
+# Endpoint untuk mendapatkan mood recap berdasarkan id user
+# @router.get("/mood_recap/", status_code=status.HTTP_200_OK)
+# async def get_mood_recap(db: Annotated[Session, Depends(get_db)]):
+#     return db.query(models.MoodRecap).all()

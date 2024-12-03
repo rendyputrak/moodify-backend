@@ -1,9 +1,9 @@
 from fastapi import Depends, status, APIRouter
 from sqlalchemy.orm import Session
-import models   
 from pydantic import BaseModel, validator
 from typing import List, Annotated
 from database import get_db
+from models import Quote
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ class QuoteCreate(BaseModel):
 # Endpoint untuk menambah quote
 @router.post("/quotes/", response_model=QuoteCreate, status_code=status.HTTP_201_CREATED)
 async def create_quote(quote: QuoteCreate, db: Annotated[Session, Depends(get_db)]):
-    db_quote = models.Quote(
+    db_quote = Quote(
         QuoteText=quote.QuoteText,
         QuoteAuthor=quote.QuoteAuthor,
         MoodID=quote.MoodID,
@@ -30,4 +30,4 @@ async def create_quote(quote: QuoteCreate, db: Annotated[Session, Depends(get_db
 # Endpoint untuk mendapatkan semua quotes
 @router.get("/quotes/", status_code=status.HTTP_200_OK)
 async def get_quotes(db: Annotated[Session, Depends(get_db)]):
-    return db.query(models.Quote).all()
+    return db.query(Quote).all()

@@ -1,13 +1,19 @@
 from fastapi import APIRouter, HTTPException, Depends, status
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session 
-from database import engine, SessionLocal  
-from pydantic import BaseModel, validator
-from typing import List, Annotated
+from sqlalchemy.orm import Session 
+from pydantic import BaseModel
+from typing import Annotated
 from models import User
 from database import get_db
+from passlib.context import CryptContext
 
 router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 class UserCreate(BaseModel):
     Email: str
@@ -18,16 +24,32 @@ class UserCreate(BaseModel):
     BirthDate: str = None
     Avatar: str = None
 
-# Endpoint untuk menambah user
-@router.post("/users/", status_code=status.HTTP_201_CREATED)
+class UserUpdate(BaseModel):
+    Firstname: str = None
+    Lastname: str = None
+    Gender: str = None
+    BirthDate: str = None
+    Avatar: str = None
+
+class PasswordUpdate(BaseModel):
+    old_password: str
+    new_password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+# Endpoint untuk menambah user / signup
+@router.post("/signup/", status_code=status.HTTP_201_CREATED)
 async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
     try:
         if len(user.Password) < 8:
             raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
 
+        hashed_password = pwd_context.hash(user.Password)
         db_user = User(
             Email=user.Email,
-            Password=user.Password,
+            Password=hashed_password,
             Firstname=user.Firstname,
             Lastname=user.Lastname,
             Gender=user.Gender,
@@ -53,9 +75,53 @@ async def get_users(user_id: int, db: Annotated[Session, Depends(get_db)]):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
     return user
 
-# @router.post("/login/")
-# async def login(email: str, password: str, db: Annotated[Session, Depends(get_db)]):
-#     db_user = db.query(models.User).filter(models.User.Email == email).first()
-#     if db_user and db_user.verify_password(password):
-#         return {"message": "Login berhasil!"}
-#     raise HTTPException(status_code=401, detail="Invalid credentials")
+# Endpoint untuk edit profil
+@router.put("/users/{user_id}/profile", status_code=status.HTTP_200_OK)
+async def update_profile(user_id: int, user_update: UserUpdate, db: Annotated[Session, Depends(get_db)]):
+    user = db.query(User).filter(User.UserID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
+
+    if user_update.Firstname:
+        user.Firstname = user_update.Firstname
+    if user_update.Lastname:
+        user.Lastname = user_update.Lastname
+    if user_update.Gender:
+        user.Gender = user_update.Gender
+    if user_update.BirthDate:
+        user.BirthDate = user_update.BirthDate
+    if user_update.Avatar:
+        user.Avatar = user_update.Avatar
+
+    db.commit()
+    db.refresh(user)
+    return {"message": "Profil berhasil diperbarui", "user": user}
+
+# Endpoint untuk login
+@router.post("/login", status_code=status.HTTP_200_OK)
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.Email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email tidak ditemukan")
+    
+    if not pwd_context.verify(request.password, user.Password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password salah")
+    
+    return {"message": "Login berhasil!", "user_id": user.UserID, "email": user.Email}
+
+# Endpoint untuk ganti password
+# @router.put("/users/{user_id}/password", status_code=status.HTTP_200_OK)
+# async def update_password(user_id: int, password_update: PasswordUpdate, db: Annotated[Session, Depends(get_db)]):
+#     user = db.query(User).filter(User.UserID == user_id).first()
+#     if not user:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
+    
+#     if not pwd_context.verify(password_update.old_password, user.Password):
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password lama salah")
+ 
+#     if len(password_update.new_password) < 8:
+#         raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
+
+#     user.Password = pwd_context.hash(password_update.new_password)
+#     db.commit()
+#     return {"message": "Password berhasil diperbarui"}
