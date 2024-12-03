@@ -8,7 +8,7 @@ class ExpressionAnalysis(Base):
     AnalysisID = Column(Integer, primary_key=True, autoincrement=True)
     UserID = Column(Integer, ForeignKey("users.UserID"))
     ImageID = Column(Integer, ForeignKey("images.ImageID"))
-    MoodDetected = Column(Integer)
+    MoodDetected = Column(String(255))
     SadScore = Column(Float)
     AngryScore = Column(Float)
     HappyScore = Column(Float)

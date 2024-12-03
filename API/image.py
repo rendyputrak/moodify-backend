@@ -1,10 +1,8 @@
-from fastapi import APIRouter, FastAPI, HTTPException, Depends, status
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-import models  
-from database import engine, SessionLocal  
-from pydantic import BaseModel, validator
-from typing import List, Annotated
+from fastapi import APIRouter, HTTPException, Depends, status
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Annotated
 from database import get_db
 from models import Image
 
@@ -38,3 +36,16 @@ async def get_users(user_id: int, db: Annotated[Session, Depends(get_db)]):
     if image is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gambar tidak ditemukan!")
     return image
+
+# Endpoint untuk mendapatkan image paling baru berdasarkan user_id
+@router.get("/images/latest/{user_id}", status_code=status.HTTP_200_OK)
+async def get_latest_image(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    latest_image = (
+        db.query(Image)
+        .filter(Image.UserID == user_id)
+        .order_by(desc(Image.CreatedAt))  # Urutkan berdasarkan waktu terbaru
+        .first()
+    )
+    if not latest_image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gambar terbaru tidak ditemukan!")
+    return latest_image

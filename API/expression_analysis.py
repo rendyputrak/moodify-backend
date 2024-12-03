@@ -1,8 +1,6 @@
 from fastapi import APIRouter, FastAPI, HTTPException, Depends, status
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from database import engine, SessionLocal  
-from pydantic import BaseModel, validator
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from typing import List, Annotated
 from database import get_db
 from models import ExpressionAnalysis
@@ -12,7 +10,7 @@ router = APIRouter()
 class ExpressionAnalysisCreate(BaseModel):
     UserID: int
     ImageID: int
-    MoodDetected: int
+    MoodDetected: str
     SadScore: float
     AngryScore: float
     HappyScore: float
