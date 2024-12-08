@@ -1,19 +1,54 @@
-from fastapi import APIRouter, HTTPException, Depends, status
-from sqlalchemy.orm import Session 
+import os
+import shutil
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Annotated
 from models import User
 from database import get_db
 from passlib.context import CryptContext
+from dotenv import load_dotenv
+import jwt
+from datetime import datetime, timedelta
+from fastapi.security import OAuth2PasswordBearer, OAuth2
+from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
+from fastapi.openapi.models import OAuth2 as OAuth2Model
+
+load_dotenv()
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+SECRET_KEY = os.getenv("SECRET_KEY", "secret_key")  # Use environment variable for secret key
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Set the expiration time for the access token
+
+# OAuth2PasswordBearer instance
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+# JWT token generation
+def create_access_token(data: dict, expires_delta: timedelta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# JWT token verification
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 class UserCreate(BaseModel):
     Email: str
@@ -29,7 +64,6 @@ class UserUpdate(BaseModel):
     Lastname: str = None
     Gender: str = None
     BirthDate: str = None
-    Avatar: str = None
 
 class PasswordUpdate(BaseModel):
     old_password: str
@@ -39,14 +73,18 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-# Endpoint untuk menambah user / signup
+# Endpoint for signup
 @router.post("/signup/", status_code=status.HTTP_201_CREATED)
 async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
     try:
-        if len(user.Password) < 8:
-            raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
+        existing_user = db.query(User).filter(User.Email == user.Email).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
 
-        hashed_password = pwd_context.hash(user.Password)
+        if len(user.Password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+        hashed_password = hash_password(user.Password)
         db_user = User(
             Email=user.Email,
             Password=hashed_password,
@@ -61,27 +99,71 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
         return db_user
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-    
-# Endpoint untuk mendapatkan semua user
-@router.get("/users/", status_code=status.HTTP_200_OK)
-async def get_users(db: Annotated[Session, Depends(get_db)]):
-    return db.query(User).all()
-    
-# Endpoint untuk mendapatkan user berdasar id
+
+# Endpoint for login and token creation
+@router.post("/login/", status_code=status.HTTP_200_OK)
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.Email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+
+    if not verify_password(request.password, user.Password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+
+    access_token = create_access_token(data={"sub": user.UserID})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Dependency to get the current user from the token
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing token"
+        )
+    return verify_token(token)
+
+# Endpoint to get user profile with authentication
 @router.get("/users/{user_id}", status_code=status.HTTP_200_OK)
-async def get_users(user_id: int, db: Annotated[Session, Depends(get_db)]):
+async def get_user_profile(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: dict = Depends(get_current_user)
+):
+    if str(user_id) != str(current_user.get("sub")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this profile"
+        )
     user = db.query(User).filter(User.UserID == user_id).first()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
-    return user
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {
+        "UserID": user.UserID,
+        "Email": user.Email,
+        "Firstname": user.Firstname,
+        "Lastname": user.Lastname,
+        "Gender": user.Gender,
+        "BirthDate": user.BirthDate,
+        "Avatar": user.Avatar,
+    }
 
-# Endpoint untuk edit profil
+# Endpoint to update user profile with authentication
 @router.put("/users/{user_id}/profile", status_code=status.HTTP_200_OK)
-async def update_profile(user_id: int, user_update: UserUpdate, db: Annotated[Session, Depends(get_db)]):
+async def update_profile(
+    user_id: int,
+    user_update: UserUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    Avatar: Annotated[UploadFile | None, File()] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if str(user_id) != str(current_user.get("sub")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this profile")
+
     user = db.query(User).filter(User.UserID == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    # Update data pengguna
     if user_update.Firstname:
         user.Firstname = user_update.Firstname
     if user_update.Lastname:
@@ -90,38 +172,61 @@ async def update_profile(user_id: int, user_update: UserUpdate, db: Annotated[Se
         user.Gender = user_update.Gender
     if user_update.BirthDate:
         user.BirthDate = user_update.BirthDate
-    if user_update.Avatar:
-        user.Avatar = user_update.Avatar
+
+    # Upload dan validasi avatar
+    if Avatar:
+        if Avatar.content_type not in ["image/jpeg", "image/png"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid avatar format")
+        upload_dir = f"./media/uploads/avatars/user_{user_id}"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, Avatar.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(Avatar.file, buffer)
+        user.Avatar = file_path
 
     db.commit()
     db.refresh(user)
-    return {"message": "Profil berhasil diperbarui", "user": user}
 
-# Endpoint untuk login
-@router.post("/login", status_code=status.HTTP_200_OK)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.Email == request.email).first()
+    return {
+        "message": "Profile updated successfully",
+        "user": {
+            "UserID": user.UserID,
+            "Firstname": user.Firstname,
+            "Lastname": user.Lastname,
+            "Gender": user.Gender,
+            "BirthDate": user.BirthDate,
+            "Avatar": user.Avatar,
+        }
+    }
+
+# Endpoint for updating password
+@router.put("/users/{user_id}/password", status_code=status.HTTP_200_OK)
+async def update_password(
+    user_id: int,
+    password_update: PasswordUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: dict = Depends(get_current_user)
+):
+    if str(user_id) != str(current_user.get("sub")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this password")
+
+    user = db.query(User).filter(User.UserID == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email tidak ditemukan")
-    
-    if not pwd_context.verify(request.password, user.Password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password salah")
-    
-    return {"message": "Login berhasil!", "user_id": user.UserID, "email": user.Email}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-# Endpoint untuk ganti password
-# @router.put("/users/{user_id}/password", status_code=status.HTTP_200_OK)
-# async def update_password(user_id: int, password_update: PasswordUpdate, db: Annotated[Session, Depends(get_db)]):
-#     user = db.query(User).filter(User.UserID == user_id).first()
-#     if not user:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan!")
-    
-#     if not pwd_context.verify(password_update.old_password, user.Password):
-#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password lama salah")
- 
-#     if len(password_update.new_password) < 8:
-#         raise HTTPException(status_code=400, detail="Password minimal 8 karakter")
+    if not verify_password(password_update.old_password, user.Password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect old password. Please try again."
+        )
 
-#     user.Password = pwd_context.hash(password_update.new_password)
-#     db.commit()
-#     return {"message": "Password berhasil diperbarui"}
+    if len(password_update.new_password) < 8 or " " in password_update.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters and not contain spaces"
+        )
+
+    user.Password = hash_password(password_update.new_password)
+    db.commit()
+
+    return {"message": "Password updated successfully"}
