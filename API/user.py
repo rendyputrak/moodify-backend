@@ -110,7 +110,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(request.password, user.Password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
 
-    access_token = create_access_token(data={"sub": user.UserID})
+    access_token = create_access_token(data={"sub": str(user.UserID)})
     return {"access_token": access_token, "token_type": "bearer"}
 
 # Dependency to get the current user from the token
@@ -118,7 +118,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing token"
+            detail="Missing token",
+            headers={"WWW-Authenticate": "Bearer"}
         )
     return verify_token(token)
 
@@ -230,3 +231,29 @@ async def update_password(
     db.commit()
 
     return {"message": "Password updated successfully"}
+
+
+# Endpoint to delete user account and related data
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_user_account(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: dict = Depends(get_current_user)
+):
+    if str(user_id) != str(current_user.get("sub")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this account")
+
+    # Get the user record
+    user = db.query(User).filter(User.UserID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Delete user profile picture (avatar)
+    if user.Avatar and os.path.exists(user.Avatar):
+        os.remove(user.Avatar)
+
+    # Delete the user record
+    db.delete(user)
+    db.commit()
+
+    return {"message": "Account and related data deleted successfully"}
