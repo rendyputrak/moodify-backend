@@ -2,12 +2,16 @@ import json
 import os
 import base64
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 import requests
+from sqlalchemy.orm import Session
+from models.music_dataset import MusicDataset  # Pastikan mengimpor kelas model
+from database import get_db  # Fungsi untuk mendapatkan sesi database
 
 router = APIRouter()
 
+# Memuat variabel lingkungan
 load_dotenv()
 
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
@@ -30,60 +34,48 @@ def get_token():
         raise HTTPException(status_code=500, detail="Error fetching token from Spotify")
 
     json_result = json.loads(result.content)
-    token = json_result["access_token"]
-    # print(f"Fetched Token: {token}")  # Debugging token fetching
-    return token
+    return json_result["access_token"]
 
 def get_auth_header(token):
     return {"Authorization": "Bearer " + token}
 
 def get_track_url(token, track_id):
+    url = f"https://api.spotify.com/v1/tracks/{track_id}"
+    headers = get_auth_header(token)
+
+    result = requests.get(url, headers=headers)
+    if result.status_code != 200:
+        return None
+
+    json_result = json.loads(result.content)
+    return json_result.get("external_urls", {}).get("spotify", None)
+
+# Endpoint untuk memperbarui SongUrl berdasarkan SpotifyID
+@router.put("/update-song-urls")
+async def update_song_urls(db: Session = Depends(get_db)):
     try:
-        # Memperbaiki URL dengan format string untuk track_id
-        url = f"https://api.spotify.com/v1/tracks/{track_id}"
-        headers = get_auth_header(token)
-
-        result = requests.get(url, headers=headers)
-
-        # Debugging status code and response
-        print(f"Response Status Code: {result.status_code}")
-        print(f"Response Content: {result.content}")
-
-        if result.status_code != 200:
-            raise HTTPException(status_code=500, detail="Error fetching URL from Spotify")
-
-        json_result = json.loads(result.content)
-
-        # Debugging structure of the response JSON
-        print(f"JSON Result: {json_result}")
-
-        # Memeriksa apakah ada 'external_urls' dalam respon
-        if 'external_urls' in json_result:
-            return json_result["external_urls"]["spotify"]  # Mengambil URL Spotify eksternal
-        else:
-            print(f"No external URL found for track: {track_id}")  # Debugging line
-            return None
-    except Exception as e:
-        print(f"Error in get_track_url: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error fetching track URL")
-
-# Implementasi endpoint FastAPI untuk mengambil track URL
-@router.get("/get-track")
-async def get_track_endpoint(id: str):
-    try:
-        # Ambil token untuk autentikasi
+        # Mendapatkan token autentikasi Spotify
         token = get_token()
 
-        # Ambil URL track berdasarkan id
-        track_url = get_track_url(token, id)
+        # Query untuk mendapatkan semua entri tanpa SongUrl
+        music_datasets = db.query(MusicDataset).filter((MusicDataset.SongUrl == None) | (MusicDataset.SongUrl == "")).all()
 
-        # Jika tidak ditemukan URL eksternal
-        if track_url is None:
-            return JSONResponse(status_code=404, content={"message": "URL not found"})
+        updated_count = 0
+        for music in music_datasets:
+            # Ambil URL track dari Spotify
+            track_url = get_track_url(token, music.SpotifyID)
 
-        # Jika ditemukan URL, kembalikan URL tersebut dalam response
-        return {"track_url": track_url}
-    
+            # Jika URL ditemukan, perbarui kolom SongUrl
+            if track_url:
+                music.SongUrl = track_url
+                db.add(music)
+                updated_count += 1
+
+        # Simpan semua perubahan ke database
+        db.commit()
+
+        return {"message": f"Updated {updated_count} SongUrl(s)."}
+
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
