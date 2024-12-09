@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Float, Date, Enum, ForeignKey, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Date, Enum, TIMESTAMP
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -10,12 +10,12 @@ class User(Base):
     Password = Column(String(255), nullable=False)
     Firstname = Column(String(100))
     Lastname = Column(String(100))
-    Gender = Column(Enum('Laki-laki', 'Perempuan'))
+    Gender = Column(Enum('Male', 'Female'))
     BirthDate = Column(Date)
     Avatar = Column(String(255), nullable=True)
     createdAt = Column(TIMESTAMP, default=func.now(), nullable=False)
     updatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)
 
-    images = relationship("Image", back_populates="user")
-    analyses = relationship("ExpressionAnalysis", back_populates="user")
-    recaps = relationship("MoodRecap", back_populates="user")
+    images = relationship("Image", back_populates="user", cascade="all, delete-orphan")
+    analyses = relationship("ExpressionAnalysis", back_populates="user", cascade="all, delete-orphan")
+    recaps = relationship("MoodRecap", back_populates="user", cascade="all, delete-orphan")
