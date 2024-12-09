@@ -5,6 +5,8 @@ from APISpotify import track_router
 from fastapi import FastAPI
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
+from API.detect import detect_router 
 
 app = FastAPI()
 
@@ -44,5 +46,8 @@ app.include_router(mood_list_router, tags=["Mood List"])
 app.include_router(image_router, tags=["Image"])
 app.include_router(expression_analysis_router, tags=["Expression Analysis"])
 app.include_router(track_router, tags=["Spotify"])
+app.include_router(detect_router, tags=["Emotion Detection"]) 
+app.mount("/images", StaticFiles(directory="images"), name="images")
+
 
 Base.metadata.create_all(bind=engine)
