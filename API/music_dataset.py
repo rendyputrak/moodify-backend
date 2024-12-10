@@ -25,6 +25,8 @@ class MusicDatasetResponse(BaseModel):
     SpotifyID: str
     ReleaseDate: str
     SongUrl: str
+    ImageUrl: str
+    Duration: str
     MoodClassification: str
 
     class Config:
