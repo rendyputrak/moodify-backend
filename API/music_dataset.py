@@ -36,7 +36,8 @@ mood_mapping = {
     "angry": ["Energetic", "Calm"],
     "disgust": ["Energetic", "Happy", "Calm"],
     "fear": ["Happy", "Calm"],
-    "surprise": ["Energetic", "Happy", "Sad"]
+    "surprise": ["Energetic", "Happy", "Sad"],
+    "neutral": ["Energetic", "Happy", "Calm", "Sad"]
 }
 
 # Endpoint untuk menambah music dataset

@@ -11,7 +11,6 @@ from database import get_db  # Fungsi untuk mendapatkan sesi database
 
 router = APIRouter()
 
-# Memuat variabel lingkungan
 load_dotenv()
 
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
@@ -39,7 +38,13 @@ def get_token():
 def get_auth_header(token):
     return {"Authorization": "Bearer " + token}
 
-def get_track_url(token, track_id):
+def format_duration(ms):
+    seconds = ms // 1000
+    minutes = seconds // 60
+    seconds %= 60
+    return f"{minutes}:{seconds:02d}"
+
+def get_track_data(token, track_id):
     url = f"https://api.spotify.com/v1/tracks/{track_id}"
     headers = get_auth_header(token)
 
@@ -47,10 +52,8 @@ def get_track_url(token, track_id):
     if result.status_code != 200:
         return None
 
-    json_result = json.loads(result.content)
-    return json_result.get("external_urls", {}).get("spotify", None)
+    return json.loads(result.content)
 
-# Endpoint untuk memperbarui SongUrl berdasarkan SpotifyID
 @router.put("/update-song-urls")
 async def update_song_urls(db: Session = Depends(get_db)):
     try:
@@ -58,23 +61,38 @@ async def update_song_urls(db: Session = Depends(get_db)):
         token = get_token()
 
         # Query untuk mendapatkan semua entri tanpa SongUrl
-        music_datasets = db.query(MusicDataset).filter((MusicDataset.SongUrl == None) | (MusicDataset.SongUrl == "")).all()
+        music_datasets = db.query(MusicDataset).filter(
+            (MusicDataset.SongUrl == None) | (MusicDataset.SongUrl == "")
+        ).all()
 
         updated_count = 0
         for music in music_datasets:
-            # Ambil URL track dari Spotify
-            track_url = get_track_url(token, music.SpotifyID)
+            if not music.SpotifyID:
+                continue  # Skip jika SpotifyID kosong
 
-            # Jika URL ditemukan, perbarui kolom SongUrl
-            if track_url:
-                music.SongUrl = track_url
+            # Ambil data track dari Spotify
+            track_data = get_track_data(token, music.SpotifyID)
+
+            if track_data:
+                music.MusicTitle = track_data.get("name")
+                music.MusicAlbum = track_data.get("album", {}).get("name")
+                music.MusicArtist = ", ".join(
+                    [artist.get("name") for artist in track_data.get("artists", [])]
+                )
+                music.ReleaseDate = track_data.get("album", {}).get("release_date", "")[:4]
+                music.SongUrl = track_data.get("external_urls", {}).get("spotify")
+                music.ImageUrl = (
+                track_data.get("album", {}).get("images", [{}])[0].get("url")
+                if track_data.get("album", {}).get("images") else None
+                )
+                music.Duration = format_duration(track_data.get("duration_ms", 0))
+
                 db.add(music)
                 updated_count += 1
 
-        # Simpan semua perubahan ke database
         db.commit()
 
-        return {"message": f"Updated {updated_count} SongUrl(s)."}
+        return {"message": f"Updated {updated_count} Songs Data."}
 
     except Exception as e:
         db.rollback()

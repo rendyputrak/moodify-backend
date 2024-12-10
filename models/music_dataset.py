@@ -12,6 +12,8 @@ class MusicDataset(Base):
     SpotifyID = Column(String(255))
     ReleaseDate = Column(String(255))
     SongUrl = Column(String(255))
+    ImageUrl = Column(String(255))
+    Duration = Column(String(255))
     MoodClassification = Column(Enum('Sad', 'Calm', 'Energetic', 'Happy'))
     CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
     UpdatedAt = Column(TIMESTAMP, default=func.now(), onupdate=func.now(), nullable=False)
