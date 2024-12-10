@@ -66,6 +66,7 @@ async def update_song_urls(db: Session = Depends(get_db)):
         ).all()
 
         updated_count = 0
+        removed_count = 0
         for music in music_datasets:
             if not music.SpotifyID:
                 continue  # Skip jika SpotifyID kosong
@@ -74,6 +75,29 @@ async def update_song_urls(db: Session = Depends(get_db)):
             track_data = get_track_data(token, music.SpotifyID)
 
             if track_data:
+                # Validasi jika ada data yang null
+                images = track_data.get("album", {}).get("images", [])
+                if not all([
+                    track_data.get("name"),
+                    track_data.get("album", {}).get("name"),
+                    track_data.get("artists"),
+                    track_data.get("external_urls", {}).get("spotify"),
+                    images  # Pastikan images tidak kosong
+                ]):
+                    # Jika ada data yang null, hapus baris dari database
+                    db.delete(music)
+                    removed_count += 1
+                    continue
+
+                # Periksa apakah data sudah ada untuk menghindari duplikasi
+                image_url = images[0].get("url") if images else None
+                if (
+                    music.SongUrl == track_data.get("external_urls", {}).get("spotify")
+                    and music.ImageUrl == image_url
+                ):
+                    continue  # Skip pembaruan jika tidak ada perubahan
+
+                # Update data ke database
                 music.MusicTitle = track_data.get("name")
                 music.MusicAlbum = track_data.get("album", {}).get("name")
                 music.MusicArtist = ", ".join(
@@ -81,18 +105,22 @@ async def update_song_urls(db: Session = Depends(get_db)):
                 )
                 music.ReleaseDate = track_data.get("album", {}).get("release_date", "")[:4]
                 music.SongUrl = track_data.get("external_urls", {}).get("spotify")
-                music.ImageUrl = (
-                track_data.get("album", {}).get("images", [{}])[0].get("url")
-                if track_data.get("album", {}).get("images") else None
-                )
+                music.ImageUrl = image_url
                 music.Duration = format_duration(track_data.get("duration_ms", 0))
 
-                db.add(music)
+                db.merge(music)
                 updated_count += 1
+            else:
+                # Jika track_data tidak ditemukan, hapus baris dari database
+                db.delete(music)
+                removed_count += 1
 
         db.commit()
 
-        return {"message": f"Updated {updated_count} Songs Data."}
+        return {
+            "message": f"Updated {updated_count} Songs Data.",
+            "removed": f"Deleted {removed_count} Songs from database."
+        }
 
     except Exception as e:
         db.rollback()
