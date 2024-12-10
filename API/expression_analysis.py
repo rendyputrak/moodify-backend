@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Annotated
 from database import get_db
 from models import ExpressionAnalysis
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -58,4 +59,31 @@ async def get_latest_expression_analysis(user_id: int, db: Annotated[Session, De
     if not latest_expression:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis ekspresi terbaru tidak ditemukan!")
     return latest_expression
+
+# Endpoint untuk mendapatkan jumlah mood yang terdeteksi per user berdasarkan MoodDetected
+@router.get("/expression_analysis/mood_counts/{user_id}", status_code=status.HTTP_200_OK)
+async def get_mood_counts_by_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    # Menghitung jumlah mood yang terdeteksi berdasarkan MoodDetected dan UserID
+    mood_counts = db.query(
+        ExpressionAnalysis.MoodDetected,
+        func.count().label('total')
+    ).filter(ExpressionAnalysis.UserID == user_id) \
+     .group_by(ExpressionAnalysis.MoodDetected).all()
+
+    # Membuat dictionary untuk menyimpan jumlah mood per tipe
+    mood_count_dict = {
+        "Happy": 0,
+        "Sad": 0,
+        "Fear": 0,
+        "Disgust": 0,
+        "Angry": 0,
+        "Surprised": 0
+    }
+
+    # Menambahkan jumlah mood yang terdeteksi ke dalam dictionary
+    for mood, count in mood_counts:
+        if mood in mood_count_dict:
+            mood_count_dict[mood] = count
+
+    return mood_count_dict
 
