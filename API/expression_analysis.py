@@ -50,3 +50,12 @@ async def get_expression_analysis(user_id: int, db: Annotated[Session, Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis ekspresi tidak ditemukan!")
     return user_expression
 
+# Endpoint untuk mendapatkan detail ekspresi terbaru dari user
+@router.get("/expression_analysis/latest/{user_id}", status_code=status.HTTP_200_OK)
+async def get_latest_expression_analysis(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    # Mengambil ekspresi terbaru berdasarkan UserID dan diurutkan berdasarkan CreatedAt
+    latest_expression = db.query(ExpressionAnalysis).filter(ExpressionAnalysis.UserID == user_id).order_by(ExpressionAnalysis.CreatedAt.desc()).first()
+    if not latest_expression:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis ekspresi terbaru tidak ditemukan!")
+    return latest_expression
+
