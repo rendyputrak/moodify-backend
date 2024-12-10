@@ -47,7 +47,7 @@ app.include_router(image_router, tags=["Image"])
 app.include_router(expression_analysis_router, tags=["Expression Analysis"])
 app.include_router(track_router, tags=["Spotify"])
 app.include_router(detect_router, tags=["Emotion Detection"]) 
-app.mount("/images", StaticFiles(directory="images"), name="images")
+app.mount("/images", StaticFiles(directory="images/image"), name="images")
 
 
 Base.metadata.create_all(bind=engine)
