@@ -1,9 +1,10 @@
 import os
 import shutil
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Annotated
+from typing import Annotated, Optional
 from models import User
 from database import get_db
 from passlib.context import CryptContext
@@ -21,7 +22,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "secret_key")  # Use environment variable for secret key
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Set the expiration time for the access token
+ACCESS_TOKEN_EXPIRE_MINUTES = 3000  # Set the expiration time for the access token
+
+# Directory for saving uploaded images
+UPLOAD_DIR = "images/avatars"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 # OAuth2PasswordBearer instance
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
@@ -60,10 +66,11 @@ class UserCreate(BaseModel):
     Avatar: str = None
 
 class UserUpdate(BaseModel):
-    Firstname: str = None
-    Lastname: str = None
-    Gender: str = None
-    BirthDate: str = None
+    Firstname: Optional[str] = None
+    Lastname: Optional[str] = None
+    Gender: Optional[str] = None
+    BirthDate: Optional[str] = None
+    Email: Optional[str] = None
 
 class PasswordUpdate(BaseModel):
     old_password: str
@@ -149,17 +156,16 @@ async def get_user_profile(
     }
 
 # Endpoint to update user profile with authentication
-@router.put("/users/{user_id}/profile", status_code=status.HTTP_200_OK)
+@router.put("/users/profile", status_code=status.HTTP_200_OK)
 async def update_profile(
-    user_id: int,
     user_update: UserUpdate,
     db: Annotated[Session, Depends(get_db)],
-    Avatar: Annotated[UploadFile | None, File()] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    if str(user_id) != str(current_user.get("sub")):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this profile")
+    # Menggunakan current_user untuk mendapatkan user_id
+    user_id = current_user.get("sub")
 
+    # Menemukan pengguna berdasarkan user_id yang didapat dari token
     user = db.query(User).filter(User.UserID == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -173,18 +179,10 @@ async def update_profile(
         user.Gender = user_update.Gender
     if user_update.BirthDate:
         user.BirthDate = user_update.BirthDate
+    if user_update.Email:
+        user.Email = user_update.Email
 
-    # Upload dan validasi avatar
-    if Avatar:
-        if Avatar.content_type not in ["image/jpeg", "image/png"]:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid avatar format")
-        upload_dir = f"./media/uploads/avatars/user_{user_id}"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, Avatar.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(Avatar.file, buffer)
-        user.Avatar = file_path
-
+    # Commit changes to the database
     db.commit()
     db.refresh(user)
 
@@ -196,9 +194,57 @@ async def update_profile(
             "Lastname": user.Lastname,
             "Gender": user.Gender,
             "BirthDate": user.BirthDate,
+            "Email": user.Email
+        }
+    }
+
+@router.put("/users/profile/avatar", status_code=status.HTTP_200_OK)
+async def update_avatar(
+    db: Annotated[Session, Depends(get_db)],
+    Avatar: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    # Menggunakan current_user untuk mendapatkan user_id
+    user_id = current_user.get("sub")
+
+    # Menemukan pengguna berdasarkan user_id yang didapat dari token
+    user = db.query(User).filter(User.UserID == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Hapus avatar lama jika ada
+    if user.Avatar:
+        old_avatar_path = os.path.join(UPLOAD_DIR, user.Avatar.replace("images/user-avatars/", ""))
+        if os.path.exists(old_avatar_path):
+            os.remove(old_avatar_path)
+
+    # Upload dan validasi avatar
+    if Avatar:
+        # Check if the file is an image
+        file_extension = os.path.splitext(Avatar.filename)[1].lower()
+        if file_extension not in ['.jpg', '.jpeg', '.png']:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file format. Only .jpg, .jpeg, .png are allowed.")
+
+        unique_filename = f"{uuid4().hex}{file_extension}"
+        file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(Avatar.file, buffer)
+
+        # Update avatar path in database
+        user.Avatar = f"images/user-avatars/{unique_filename}"
+
+    # Commit changes to the database
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Avatar updated successfully",
+        "user": {
             "Avatar": user.Avatar,
         }
     }
+
 
 # Endpoint for updating password
 @router.put("/users/{user_id}/password", status_code=status.HTTP_200_OK)

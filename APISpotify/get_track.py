@@ -54,7 +54,7 @@ def get_track_data(token, track_id):
 
     return json.loads(result.content)
 
-@router.put("/update-song-urls")
+@router.put("/update_song")
 async def update_song_urls(db: Session = Depends(get_db)):
     try:
         # Mendapatkan token autentikasi Spotify

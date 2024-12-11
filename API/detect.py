@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from models import Image, ExpressionAnalysis
 from database import get_db
+from API.user import get_current_user  # Fungsi untuk mendapatkan user dari token
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -20,7 +21,7 @@ interpreter.allocate_tensors()
 faceDetect = cv2.CascadeClassifier('./FacialEmotion/haarcascade_frontalface_default.xml')
 
 # Directory for saving uploaded images
-UPLOAD_DIR = "images/image"
+UPLOAD_DIR = "images/user-faces"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
@@ -30,11 +31,16 @@ detect_router = APIRouter()
 
 @detect_router.post("/detect_and_upload", status_code=status.HTTP_201_CREATED)
 async def detect_and_upload(
-    user_id: int = Form(...),
     image: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)  # Ambil user dari token
 ):
     try:
+        # Extract UserID from the current user
+        user_id = current_user.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user authentication")
+
         # Save the uploaded file to server disk
         file_extension = os.path.splitext(image.filename)[1]
         unique_filename = f"{uuid4().hex}{file_extension}"
@@ -78,7 +84,7 @@ async def detect_and_upload(
         # Save the image information in the database
         db_image = Image(
             UserID=user_id,
-            ImagePath=f"images/image/{unique_filename}"
+            ImagePath=f"images/user-faces/{unique_filename}"
         )
         db.add(db_image)
         db.commit()
@@ -95,6 +101,7 @@ async def detect_and_upload(
             DisgustScore=float(percentage_probabilities[1]),
             FearScore=float(percentage_probabilities[2]),
             SurpriseScore=float(percentage_probabilities[6]),
+            NeutralScore=float(percentage_probabilities[4]),
         )
         db.add(analysis)
         db.commit()
@@ -103,7 +110,8 @@ async def detect_and_upload(
         return {
             "message": "Image uploaded and emotion detected successfully",
             "image": {"UserID": user_id, "ImagePath": db_image.ImagePath},
-            "analysis": analysis
+            "analysis": analysis,
+            "user_id": user_id
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

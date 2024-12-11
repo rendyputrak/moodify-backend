@@ -15,6 +15,7 @@ class ExpressionAnalysis(Base):
     DisgustScore = Column(Float)
     FearScore = Column(Float)
     SurpriseScore = Column(Float)
+    NeutralScore = Column(Float)
     CreatedAt = Column(TIMESTAMP, default=func.now(), nullable=False)
 
     user = relationship("User", back_populates="analyses")
