@@ -41,13 +41,11 @@ app.openapi = custom_openapi
 app.include_router(user_router, tags=["User "])
 app.include_router(quote_router, tags=["Quote"])
 app.include_router(music_dataset_router, tags=["Music Dataset"])
-app.include_router(mood_recap_router, tags=["Mood Recap"])
-app.include_router(mood_list_router, tags=["Mood List"])
 app.include_router(image_router, tags=["Image"])
 app.include_router(expression_analysis_router, tags=["Expression Analysis"])
 app.include_router(track_router, tags=["Spotify"])
 app.include_router(detect_router, tags=["Emotion Detection"]) 
 app.mount("/images", StaticFiles(directory="images/user-faces"), name="images")
-
+app.mount("/images", StaticFiles(directory="images/avatars"))
 
 Base.metadata.create_all(bind=engine)
