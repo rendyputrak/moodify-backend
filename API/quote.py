@@ -37,7 +37,7 @@ async def create_quote(quote: QuoteCreate, db: Annotated[Session, Depends(get_db
 async def get_quotes(db: Annotated[Session, Depends(get_db)]):
     return db.query(Quote).all()
 
-@router.get("/quote/by_mood/{mood}", response_model=List[QuoteResponse], status_code=status.HTTP_200_OK)
+@router.get("/quote/{mood}", response_model=List[QuoteResponse], status_code=status.HTTP_200_OK)
 async def get_quotes_by_mood(mood: str, db: Annotated[Session, Depends(get_db)]):
     # Mencari quotes yang memiliki Mood yang sesuai dengan parameter mood
     quotes = db.query(Quote).filter(Quote.Mood == mood).all()

@@ -1,18 +1,23 @@
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form, Query
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Annotated
+from API.user import get_current_user
 from database import get_db
 from models import Image
 import os
 from uuid import uuid4
 import shutil
+from fastapi.responses import FileResponse##, StreamingResponse
+# from PIL import Image as PILImage
+# from PIL import ImageOps
+# from io import BytesIO
 
 router = APIRouter()
 
 # Ensure the directory for saving images exists
-UPLOAD_DIR = "images"
+UPLOAD_DIR = "images/user-faces"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
@@ -72,3 +77,31 @@ async def get_latest_image(user_id: int, db: Annotated[Session, Depends(get_db)]
     if not latest_image:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gambar terbaru tidak ditemukan!")
     return latest_image
+    
+# Endpoint untuk mendapatkan gambar berdasarkan ImageID
+@router.get("/images/{image_id}", status_code=status.HTTP_200_OK)
+async def get_image_by_id(image_id: int, db: Annotated[Session, Depends(get_db)]):
+    # Cari gambar berdasarkan ImageID
+    db_image = db.query(Image).filter(Image.ImageID == image_id).first()
+    
+    if not db_image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gambar tidak ditemukan!")
+    
+    # Ambil path gambar dari database
+    file_path = db_image.ImagePath
+    
+    # Validasi apakah file benar-benar ada di sistem
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File gambar tidak ditemukan di server!")
+    
+    # Tentukan media_type berdasarkan ekstensi file
+    file_extension = os.path.splitext(file_path)[1].lower()
+    media_types = {
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpg",
+        ".png": "image/png",
+    }
+    media_type = media_types.get(file_extension, "application/octet-stream")  # Default jika tidak cocok
+
+    # Return file sebagai FileResponse
+    return FileResponse(file_path, media_type=media_type)

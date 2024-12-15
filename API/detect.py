@@ -15,7 +15,7 @@ os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 os.environ["TF_NUM_INTEROP_THREADS"] = "1"
 
 # Load the TensorFlow Lite model and face detector
-interpreter = tf.lite.Interpreter(model_path='./FacialEmotion/model.tflite')
+interpreter = tf.lite.Interpreter(model_path='./FacialEmotion/200epoch.tflite')
 interpreter.allocate_tensors()
 
 faceDetect = cv2.CascadeClassifier('./FacialEmotion/haarcascade_frontalface_default.xml')

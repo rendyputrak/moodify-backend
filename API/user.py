@@ -1,7 +1,9 @@
 import os
+import os.path
 import shutil
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Annotated, Optional
@@ -14,10 +16,33 @@ from datetime import datetime, timedelta
 from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.openapi.models import OAuth2 as OAuth2Model
+from fastapi import Path, BackgroundTasks
+from PIL import Image as PILImage
+from io import BytesIO
+import re
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+from fastapi.templating import Jinja2Templates
+import random
+import string
 
 load_dotenv()
 
 router = APIRouter()
+
+conf = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_PORT=587,
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False,
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=True
+)
+
+templates = Jinja2Templates(directory="htmltemplates")
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "secret_key")  # Use environment variable for secret key
@@ -37,6 +62,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+    
+def generate_random_password(length=12):
+    characters = string.ascii_letters + string.digits + string.punctuation
+    return ''.join(random.choice(characters) for _ in range(length))
 
 # JWT token generation
 def create_access_token(data: dict, expires_delta: timedelta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)):
@@ -84,12 +113,18 @@ class LoginRequest(BaseModel):
 @router.post("/signup/", status_code=status.HTTP_201_CREATED)
 async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]):
     try:
+        # Validasi format email
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", user.Email):
+            raise HTTPException(status_code=400, detail="Invalid email format. Email must contain '@' and a domain.")
+
         existing_user = db.query(User).filter(User.Email == user.Email).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         if len(user.Password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+        default_avatar = "images/User-Default.png"
 
         hashed_password = hash_password(user.Password)
         db_user = User(
@@ -98,7 +133,8 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
             Firstname=user.Firstname,
             Lastname=user.Lastname,
             Gender=user.Gender,
-            BirthDate=user.BirthDate
+            BirthDate=user.BirthDate,
+            Avatar=default_avatar
         )
         db.add(db_user)
         db.commit()
@@ -106,6 +142,7 @@ async def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)])
         return db_user
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
 
 # Endpoint for login and token creation
 @router.post("/login/", status_code=status.HTTP_200_OK)
@@ -156,10 +193,11 @@ async def get_user_profile(
     }
 
 # Endpoint to update user profile with authentication
-@router.put("/users/profile", status_code=status.HTTP_200_OK)
+@router.put("/users/{user_id}/profile", status_code=status.HTTP_200_OK)
 async def update_profile(
-    user_update: UserUpdate,
     db: Annotated[Session, Depends(get_db)],
+    user_update: UserUpdate,
+    user_id = int,
     current_user: dict = Depends(get_current_user)
 ):
     # Menggunakan current_user untuk mendapatkan user_id
@@ -213,8 +251,8 @@ async def update_avatar(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     # Hapus avatar lama jika ada
-    if user.Avatar:
-        old_avatar_path = os.path.join(UPLOAD_DIR, user.Avatar.replace("images/user-avatars/", ""))
+    if user.Avatar and user.Avatar != "images/User-Default.png":
+        old_avatar_path = os.path.join(UPLOAD_DIR, user.Avatar.replace("images/avatars/", ""))
         if os.path.exists(old_avatar_path):
             os.remove(old_avatar_path)
 
@@ -232,7 +270,7 @@ async def update_avatar(
             shutil.copyfileobj(Avatar.file, buffer)
 
         # Update avatar path in database
-        user.Avatar = f"images/user-avatars/{unique_filename}"
+        user.Avatar = f"images/avatars/{unique_filename}"
 
     # Commit changes to the database
     db.commit()
@@ -265,6 +303,12 @@ async def update_password(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect old password. Please try again."
+        )
+
+    if password_update.new_password == password_update.old_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password cannot be the same as the old password."
         )
 
     if len(password_update.new_password) < 8 or " " in password_update.new_password:
@@ -303,3 +347,52 @@ async def delete_user_account(
     db.commit()
 
     return {"message": "Account and related data deleted successfully"}
+
+# endpoint get avatar by user id
+@router.get("/users/avatar/{file_path:path}", status_code=status.HTTP_200_OK)
+async def get_avatar(
+    db: Annotated[Session, Depends(get_db)],
+    file_path: str = Path(..., description="Path to the avatar file")
+):
+    # Validasi apakah file ada di server
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar file not found on server")
+
+    # Tentukan media_type berdasarkan ekstensi file
+    file_extension = os.path.splitext(file_path)[1].lower()
+    media_types = {
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpg",
+        ".png": "image/png",
+    }
+    media_type = media_types.get(file_extension, "application/octet-stream")  # Default jika tidak cocok
+
+    # Return file sebagai FileResponse
+    return FileResponse(file_path, media_type=media_type)
+    
+# Endpoint Forgot Password
+@router.post("/forgot_password/{email}", status_code=status.HTTP_200_OK)
+async def forgot_password(email: str, background_tasks: BackgroundTasks, db: Annotated[Session, Depends(get_db)]):
+    
+    user = db.query(User).filter(User.Email == email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+
+    new_password = generate_random_password()
+
+    user.Password = hash_password(new_password)
+    db.commit()
+
+    html_content = templates.get_template("forgot_password.html").render(new_password=new_password)
+
+    message = MessageSchema(
+        subject="Your Password for Moodify Has Been Reset",
+        recipients=[user.Email],
+        body=html_content,
+        subtype="html"
+    )
+
+    fm = FastMail(conf)
+    background_tasks.add_task(fm.send_message, message)
+
+    return {"message": "A new password has been sent to your email"}
