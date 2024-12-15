@@ -9,8 +9,3 @@ class Quote(Base):
     QuoteText = Column(String(255))
     QuoteAuthor = Column(String(100))
     Mood = Column(String(255))
-    MoodID = Column(Integer, ForeignKey("mood_list.MoodID"), nullable=True)
-    RecapID = Column(Integer, ForeignKey("mood_recap.RecapID"), nullable=True)
-
-    mood = relationship("MoodList", back_populates="quotes")
-    recap = relationship("MoodRecap")

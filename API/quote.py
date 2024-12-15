@@ -10,8 +10,6 @@ router = APIRouter()
 class QuoteCreate(BaseModel):
     QuoteText: str
     QuoteAuthor: str
-    MoodID: int
-    RecapID: int
 
 class QuoteResponse(BaseModel):
     QuoteText: str
@@ -24,8 +22,6 @@ async def create_quote(quote: QuoteCreate, db: Annotated[Session, Depends(get_db
     db_quote = Quote(
         QuoteText=quote.QuoteText,
         QuoteAuthor=quote.QuoteAuthor,
-        MoodID=quote.MoodID,
-        RecapID=quote.RecapID
     )
     db.add(db_quote)
     db.commit()

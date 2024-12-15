@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from database import engine, Base
-from API import user_router, quote_router, music_dataset_router, mood_recap_router, mood_list_router, image_router, expression_analysis_router
+from API import user_router, quote_router, music_dataset_router, image_router, expression_analysis_router
 from APISpotify import track_router
 from fastapi import FastAPI
 from fastapi.security import OAuth2PasswordBearer
